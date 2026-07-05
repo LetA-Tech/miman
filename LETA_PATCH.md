@@ -18,9 +18,12 @@ claim below is a summary of that spec; the spec wins on conflict.
 | Sync horizon (newest upstream release tag at pin time) | `v2.0.11` (upstream commit `f2532f0`, ancestor of `cd79fa89`) |
 | Re-pin policy | Re-pin to the next upstream `v*` tag at the first `MS-<tag>` sync lane (never track `upstream/main`) |
 
-`LetA-Tech/miman` is a standalone repo seeded with full upstream history
-(origin only until this lane; `upstream` remote added in M0). Not a
-GitHub-fork relationship — independent issues/releases.
+`LetA-Tech/miman` **is a GitHub fork** of `mem0ai/mem0` (`fork: true`, parent
+`mem0ai/mem0` — M0 finding, spec §1.2), seeded with full upstream history;
+`upstream` remote added in M0. Consequences (standing facts): GitHub Actions is
+disabled until the web-UI consent banner is clicked; `gh` PR commands pin
+`--repo LetA-Tech/miman` (a fork can default to the parent); scheduled workflows
+are disabled-by-default on forks (M3 verifies the sync cron arms).
 
 ## Release tag rule
 
@@ -49,13 +52,25 @@ LETA_PATCH.md (this file)
 Everything else in the repo stays byte-identical to upstream — that is the
 sync-cost model (spec §4.6).
 
-## Status at this lane (M0 — repo bootstrap)
+## Shipped at M1 — server patch layer (spec §4.1-4.2, §5.1-5.3, §3.4)
 
-No server code patches exist yet. This lane only wires the `upstream` remote
-and creates this manifest with the base pin. The KEEP list above is the
-**target state**; it is realized incrementally:
+The only Python-code delta over upstream. `server/main.py` edits are **additive**:
+no existing upstream function is modified; the single existing-line change is the
+`SKIPPED_REQUEST_LOG_PATHS` constant (health paths added).
 
-- M1 — server patch layer (vector-store selector, healthz/readyz, provisioning script)
+| # | File | Kind | What LetA changed (spec) |
+|---|---|---|---|
+| L1 | `server/main.py` | M (additive) | `import urllib.parse`; env-driven vector-store selector + `_build_qdrant_vector_store_config` builder that survives the `QdrantConfig` before-validator by decomposing url-without-api_key to host/port (§5.1-5.2); `MEM0_VECTOR_STORE` unset/`pgvector` keep `DEFAULT_CONFIG` byte-identical, `qdrant` builds from `QDRANT_*`, else `RuntimeError` at boot; `GET /healthz` + `GET /readyz` (unauth, `include_in_schema=False`, readyz probes app-DB only — never Qdrant, §5.3); `MIMAN_ENV`-gated fail-closed Qdrant boot probe (§5.2); `/healthz`,`/readyz` added to `SKIPPED_REQUEST_LOG_PATHS` |
+| L2 | `server/scripts/provision_service_key.py` | A (new) | Deploy-time member-credential provisioning (§3.4 delta-6, tracker DV-1). `--name --label [--rotate]`; creates a `role="member"` service user + API key via upstream `generate_api_key`; prints the full key once to stdout, never logs it; idempotent by name; zero API-surface / auth.py change |
+| L3 | `tests/server/test_leta_qdrant_config.py` | A (new) | Regression suite T-1..T-17 (spec §9.4). Hermetic: mocks only, no live Postgres/Qdrant/network |
+
+**Dropped, verified fixed upstream (not re-added):** `/search` filters wrapper
+(§3.1, D-1 — regression-guarded by T-11) and `OPENAI_BASE_URL` forwarding (§3.2,
+D-2 — regression-guarded by T-10). `infer` stays upstream-default; FinMem owns the
+default (§3.5, D-3 — single-record invariant pinned by T-13).
+
+## Remaining lanes
+
 - M2 — production image + deploy profile
 - M3 — CI/CD (miman-checks.yml, miman-cd.yml, miman-upstream-sync.yml)
 

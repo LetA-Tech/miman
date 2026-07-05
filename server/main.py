@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import time
+import urllib.parse
 from typing import Any, Dict, List, Optional
 
 import telemetry
@@ -55,7 +56,7 @@ SENSITIVE_CONFIG_KEYS = {
     "secret",
     "token",
 }
-SKIPPED_REQUEST_LOG_PATHS = {"/api/health", "/docs", "/redoc", "/openapi.json"}
+SKIPPED_REQUEST_LOG_PATHS = {"/api/health", "/healthz", "/readyz", "/docs", "/redoc", "/openapi.json"}
 SKIPPED_REQUEST_LOG_PREFIXES = ("/requests",)
 
 BUNDLED_LLM_PROVIDERS = ("openai", "anthropic", "gemini")
@@ -136,6 +137,62 @@ DEFAULT_CONFIG = {
     "embedder": {"provider": "openai", "config": {"api_key": OPENAI_API_KEY, "model": DEFAULT_EMBEDDER_MODEL}},
     "history_db_path": HISTORY_DB_PATH,
 }
+
+
+# --- LetA patch (see LETA_PATCH.md; spec 03-M §5.1-5.2) -----------------------
+# Env-driven vector-store selection. Unset/pgvector keep the upstream DEFAULT_CONFIG
+# byte-identical (zero drift for upstream users); qdrant builds a config that survives
+# the QdrantConfig before-validator (mem0/configs/vector_stores/qdrant.py:35).
+MIMAN_ENV = os.environ.get("MIMAN_ENV", "prod").strip().lower()
+MEM0_VECTOR_STORE = os.environ.get("MEM0_VECTOR_STORE", "").strip().lower()
+QDRANT_URL = os.environ.get("QDRANT_URL", "").strip()
+QDRANT_HOST = os.environ.get("QDRANT_HOST", "").strip()
+QDRANT_PORT = os.environ.get("QDRANT_PORT", "").strip()
+QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY", "").strip()
+QDRANT_COLLECTION_NAME = os.environ.get("QDRANT_COLLECTION_NAME", "memories").strip()
+QDRANT_EMBEDDING_MODEL_DIMS = os.environ.get("QDRANT_EMBEDDING_MODEL_DIMS", "").strip()
+_QDRANT_TRUTHY = {"1", "true", "yes", "on"}
+QDRANT_ON_DISK = os.environ.get("QDRANT_ON_DISK", "").strip().lower() in _QDRANT_TRUTHY
+
+
+def _build_qdrant_vector_store_config() -> dict:
+    config: dict = {"collection_name": QDRANT_COLLECTION_NAME}
+    if QDRANT_URL and QDRANT_API_KEY:
+        config["url"] = QDRANT_URL
+        config["api_key"] = QDRANT_API_KEY
+    elif QDRANT_URL:
+        # The before-validator rejects url-without-api_key (qdrant.py:35); the
+        # underlying client accepts url-only, so decompose to host+port instead.
+        parsed = urllib.parse.urlparse(QDRANT_URL)
+        if not parsed.hostname or not (parsed.port or parsed.scheme in ("http", "https")):
+            raise RuntimeError(f"QDRANT_URL is not parseable: {QDRANT_URL!r}")
+        config["host"] = parsed.hostname
+        config["port"] = parsed.port or (443 if parsed.scheme == "https" else 6333)
+        if parsed.scheme == "https":
+            config["https"] = True
+    elif QDRANT_HOST and QDRANT_PORT:
+        config["host"] = QDRANT_HOST
+        config["port"] = int(QDRANT_PORT)
+    else:
+        raise RuntimeError("MEM0_VECTOR_STORE=qdrant requires QDRANT_URL or QDRANT_HOST+QDRANT_PORT.")
+    if QDRANT_EMBEDDING_MODEL_DIMS:
+        config["embedding_model_dims"] = int(QDRANT_EMBEDDING_MODEL_DIMS)
+    config["on_disk"] = QDRANT_ON_DISK  # never set `path` — it selects embedded local mode
+    return {"provider": "qdrant", "config": config}
+
+
+def _select_vector_store_config() -> dict:
+    if MEM0_VECTOR_STORE in ("", "pgvector"):
+        return DEFAULT_CONFIG["vector_store"]  # upstream literal, byte-identical
+    if MEM0_VECTOR_STORE == "qdrant":
+        return _build_qdrant_vector_store_config()
+    raise RuntimeError(
+        f"Unsupported MEM0_VECTOR_STORE={MEM0_VECTOR_STORE!r}. Supported values: pgvector, qdrant."
+    )
+
+
+DEFAULT_CONFIG["vector_store"] = _select_vector_store_config()
+# --- end LetA patch ----------------------------------------------------------
 
 
 set_session_factory(SessionLocal)
@@ -557,3 +614,44 @@ def reset_memory(_auth=Depends(require_admin)):
 def home():
     """Redirect to the OpenAPI documentation."""
     return RedirectResponse(url="/docs")
+
+
+# --- LetA patch (see LETA_PATCH.md; spec 03-M §5.3, §5.2) --------------------
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    """Liveness: process is up. Unauthenticated, never touches Qdrant, log-skipped."""
+    return {"status": "ok"}
+
+
+@app.get("/readyz", include_in_schema=False)
+def readyz():
+    """Readiness: app-DB reachable. Deliberately does NOT probe Qdrant (§5.3) — a
+    vector-store outage degrades open at the Finsor recall layer, not here, so it must
+    not flap miman out of the load balancer while the rest of the API is healthy."""
+    try:
+        with SessionLocal() as session:
+            session.execute(select(User.id).limit(1))
+        return JSONResponse({"status": "ready"})
+    except Exception:
+        return JSONResponse({"status": "not_ready"}, status_code=503)
+
+
+@app.on_event("startup")
+def _qdrant_boot_probe() -> None:
+    """Fail-closed boot check (§5.2): in a non-local deploy with Qdrant selected, do one
+    get_collections() round-trip so wrong URL/key/dims fails at boot, not first request.
+    MIMAN_ENV=local warns only; pgvector is skipped entirely (upstream behavior untouched)."""
+    if MEM0_VECTOR_STORE != "qdrant":
+        return
+    try:
+        get_memory_instance().vector_store.client.get_collections()
+    except Exception as exc:
+        target = QDRANT_URL or f"{QDRANT_HOST}:{QDRANT_PORT}"
+        if MIMAN_ENV == "local":
+            logging.warning("Qdrant boot probe failed (MIMAN_ENV=local, continuing): %s", target)
+            return
+        # Raising in a startup handler makes uvicorn abort boot with a non-zero exit
+        # (fail-closed, §5.2) — the deploy stops instead of serving a mis-wired Qdrant.
+        logging.error("Qdrant boot probe failed for %s: %s", target, exc)
+        raise RuntimeError(f"Qdrant boot probe failed for {target}: {exc}")
+# --- end LetA patch ---------------------------------------------------------
