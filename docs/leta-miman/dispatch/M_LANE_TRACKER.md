@@ -22,7 +22,7 @@ nothing and risks audit noise.
 
 | Lane | Taxonomy | Title | Depends | Model | P6.5 | Status | PR | Audit |
 |---|---|---|---|---|---|---|---|---|
-| M0 | INFRA | Repo bootstrap: upstream remote, LETA_PATCH.md v1, CI-gate reality check | — | Sonnet 5 | no | PENDING | — | — |
+| M0 | INFRA | Repo bootstrap: upstream remote, LETA_PATCH.md v1, CI-gate reality check | — | Sonnet 5 | no | MERGED | [#1](https://github.com/LetA-Tech/miman/pull/1) | — |
 | M1 | PATCH | Server patch layer: vector-store selector, healthz/readyz, boot probe, provisioning script, tests T-1..T-15 | M0 | Opus 4.8 | **yes** | PENDING | — | — |
 | M2 | INFRA | Prod image + deploy profile: Dockerfile, entrypoint, compose, env, deploy.sh smokes, Makefile targets, deploy/release scripts | M1 | Sonnet 5 | no | PENDING | — | — |
 | M3 | RELEASE-infra | CI/CD: miman-checks.yml (+ci-gate reg), miman-cd.yml (+router arm), miman-upstream-sync.yml | M2 | Sonnet 5 | no | PENDING | — | — |
@@ -101,6 +101,7 @@ bash scripts/deploy-check.sh
 | 2026-07-05 | Dispatch pack created (tracker, kickoff, M0-M3, MA1, MR1, MS template). Guide adopted; canonical home `docs/leta-miman/`. Bridge adoption note appended. |
 | 2026-07-05 | Base branch convention: **`main`** (miman has no dev line; upstream-history repo). Auto-merge (squash) on green — same Lucas authorization as finsor. |
 | 2026-07-05 | B-4 status at pack creation: PROPOSED in bridge, awaiting finsor/Lucas confirm. M1 proceeds (script is miman-internal); consumer env naming (FINMEM_*) is the only pending piece — M1 P0 re-checks the bridge. |
+| 2026-07-05 | M0 merged (PR #1): `upstream` remote wired, `LETA_PATCH.md` v1 created, CI-gate verified (no hatch on this machine — `python3.11` venv path proven instead). M1 unblocked. |
 
 ## Follow-up candidates (one-liners; not scope for any current lane)
 
