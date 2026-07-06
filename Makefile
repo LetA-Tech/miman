@@ -1,4 +1,4 @@
-.PHONY: format sort lint miman-test miman-docker-build miman-deploy-check miman-release-all miman-compose-config
+.PHONY: format sort lint miman-test miman-docker-build miman-deploy-check release-all miman-compose-config
 
 # Variables
 ISORT_OPTIONS = --profile black
@@ -80,7 +80,7 @@ miman-docker-build:
 miman-deploy-check:
 	@bash scripts/deploy-check.sh
 
-miman-release-all:
+release-all:
 	@VERSION="$(VERSION)" bash scripts/release-all.sh
 
 miman-compose-config:

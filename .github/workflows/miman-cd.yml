@@ -103,6 +103,7 @@ jobs:
           base="${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}"
           echo "image_version=${base}:${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
           echo "image_sha=${base}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          echo "image_latest=${base}:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build and push image
         uses: docker/build-push-action@v6
@@ -118,6 +119,7 @@ jobs:
           tags: |
             ${{ steps.refs.outputs.image_version }}
             ${{ steps.refs.outputs.image_sha }}
+            ${{ steps.refs.outputs.image_latest }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

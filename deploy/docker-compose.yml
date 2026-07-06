@@ -2,8 +2,9 @@
 # miman — LetA deployment profile (Qdrant-native, spec 03-M §5.4)
 # ============================================================================
 # miman + qdrant + appdb. Headless (no dashboard — admin access is
-# ADMIN_API_KEY/admin JWT via finmem-admin, spec §5.4). Binds only to
-# 127.0.0.1; qdrant/appdb have no host ports at all.
+# ADMIN_API_KEY/admin JWT via finmem-admin, spec §5.4). API publishes on the
+# VPC-private interface only (${MIMAN_BIND_IP}, never 0.0.0.0/public — internal
+# service reached by finsor across the VPC); qdrant/appdb have no host ports.
 # ============================================================================
 
 name: miman
@@ -11,18 +12,17 @@ name: miman
 services:
 
   miman:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      args:
-        IMAGE_SOURCE: https://github.com/LetA-Tech/miman
-        IMAGE_REVISION: ${IMAGE_REVISION:-dev-local}
-        IMAGE_VERSION: ${IMAGE_VERSION:-dev-local}
-    image: miman:${IMAGE_VERSION:-dev-local}
+    # Pull the released image from DOCR — never built on the host. CD ships a
+    # moving `latest` plus immutable miman-vX.Y.Z + sha tags; the deploy tracks
+    # `latest` so .env never needs a per-release tag bump (fleet doctrine).
+    image: ${MIMAN_IMAGE_REPO:-registry.digitalocean.com/leta-container-registry/miman}:${IMAGE_VERSION:-latest}
+    pull_policy: always
     container_name: miman
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8000:8000"
+      # VPC-private interface only — never 0.0.0.0 or the public IP (deploy-check
+      # forbids 0.0.0.0). Mirrors the host's other private-bound services.
+      - "${MIMAN_BIND_IP:?set MIMAN_BIND_IP in deploy/.env}:8000:8000"
     env_file:
       - path: .env
         required: false
