@@ -1,0 +1,91 @@
+name: miman checks
+
+# On PRs this is invoked by ci-gate.yml (the single required check);
+# push-to-main and manual runs remain standalone.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'deploy/**'
+      - 'scripts/deploy-check.sh'
+      - 'scripts/release-all.sh'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - 'tests/server/**'
+      - '.github/workflows/miman-checks.yml'
+  workflow_call:
+
+jobs:
+  lint:
+    name: Ruff (LetA paths)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check server/main.py server/scripts/provision_service_key.py tests/server/
+
+  test:
+    name: LetA regression suite
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+          pip install -r server/requirements.txt
+
+      - name: Run pytest
+        run: pytest tests/server/test_leta_qdrant_config.py -q
+
+  deploy-check:
+    name: Deploy-check static gate
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run scripts/deploy-check.sh
+        run: bash scripts/deploy-check.sh
+
+  docker-build:
+    name: Docker build smoke (no push)
+    needs: deploy-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          build-args: |
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
+            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_VERSION=ci-${{ github.sha }}
+          cache-from: type=gha,scope=miman
+          cache-to: type=gha,mode=max,scope=miman

@@ -93,9 +93,25 @@ Also found: `deploy/.env`'s `MEM0_DEFAULT_LLM_MODEL`/`MEM0_DEFAULT_EMBEDDER_MODE
 
 All acceptance criteria now PASS: A1 (build), A2 (deploy-check ×2), A3 (provenance), A5 (non-root), A6, and **A4** — full `deploy.sh` run green: add→search→delete round-trip plus both member-key 403s (`POST /reset`, unscoped `GET /memories`).
 
+## Shipped at M3 — CI/CD (spec §4.5, §6.2-6.4, §12 items 8-9)
+
+| # | File | Kind | What LetA changed (spec) |
+|---|---|---|---|
+| L11 | `.github/workflows/miman-checks.yml` | A (new) | `workflow_dispatch` + push-to-main + `workflow_call`; sequential jobs ruff (LetA paths) → pytest (`tests/server/test_leta_qdrant_config.py`) → `scripts/deploy-check.sh` → `docker build` smoke (no push, GHA cache scope `miman`) |
+| L12 | `.github/workflows/ci-gate.yml` | M (additive) | Registered `miman` in the `changes` job's path filter (spec §6.2 list) + `outputs`, added a `miman` call job (`uses: ./.github/workflows/miman-checks.yml`), added `miman` to the `gate` job's `needs` |
+| L13 | `.github/workflows/miman-cd.yml` | A (new) | `workflow_dispatch` (`tag`/`prerelease` inputs); `validate` job gated `startsWith(inputs.tag, 'miman-v')` (semver regex incl. optional `-rcN` suffix, tag-on-`main` ancestor check, ruff+pytest+deploy-check) → `publish` job (doctl DOCR login via `DIGITALOCEAN_ACCESS_TOKEN`, buildx push `miman:<tag>` + `miman:<sha>` to `registry.digitalocean.com/leta-container-registry/miman`, OCI labels, GHA cache scope `miman` shared with L11) |
+| L14 | `.github/workflows/release.yml` | M (additive, 1 line) | `miman-v*) workflow="miman-cd.yml" ;;` inserted above the bare `v*` arm (R-1 backstop — prefixed tags can never fall through to the PyPI publish path) |
+| L15 | `.github/workflows/miman-upstream-sync.yml` | A (new) | Weekly cron (Mon 06:17 UTC) + `workflow_dispatch`; compares `LETA_PATCH.md`'s recorded "Sync horizon" tag against the newest bare `v*` tag on `mem0ai/mem0` (`git ls-remote`, semver `sort -V`); no drift → green exit; drift + clean merge → push `sync/upstream-<tag>` branch + open a PR carrying the §6.4 protected-file checklist (re-run of `miman-checks` happens automatically via CI Gate on the PR, not duplicated in this workflow); drift + conflict → abort merge, fail the run loudly. Never auto-merges; never fetches/tracks `upstream/main` |
+
+**R6 grep-proof (no workflow may publish to PyPI/npm):** `grep -niE "pypi|npm publish|npmjs|twine|hatch publish" .github/workflows/miman-*.yml` → no matches.
+
+**A3 router negative-proof:** `miman-v*` arm sits at `release.yml` line 48, bare `v*` at line 49 — prefixed tag can never fall through.
+
+**DIGITALOCEAN_ACCESS_TOKEN:** does not exist yet on `LetA-Tech/miman` (`gh secret list` returns empty) — same as the standing GitHub Actions web-UI consent blocker from M0/M1/M2 (`gh workflow list` still shows only the default Dependency Graph + CodeQL workflows, confirming Actions itself isn't enabled on this fork yet). Both are Lucas gates, already tracked as follow-ups; this lane adds no new blocker, just confirms the same one from the CD/sync angle. `miman-cd.yml`'s `publish` job fails fast with a clear message if dispatched before the secret exists — no silent no-op.
+
 ## Remaining lanes
 
-- M3 — CI/CD (miman-checks.yml, miman-cd.yml, miman-upstream-sync.yml)
+None — M0 through M3 are all merged. Next up per the tracker: MA1 (wave audit, needs GitHub Actions enabled first) → MR1 (cut `miman-v0.1.0-rc1`).
 
 Each lane updates this file with what it actually shipped.
 

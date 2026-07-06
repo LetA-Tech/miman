@@ -1,0 +1,142 @@
+name: Publish miman 🧠 image to DOCR
+
+# Dispatched by release.yml (Release Router) when a release tagged miman-v*
+# is published. Can also be dispatched manually to re-publish a tag.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build and publish (e.g. miman-v0.1.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Unused for DOCR (image tags are immutable per-tag); accepted for router uniformity'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: registry.digitalocean.com
+  REGISTRY_NAMESPACE: leta-container-registry
+  IMAGE_NAME: miman
+
+jobs:
+  validate:
+    name: Validate release artifacts
+    runs-on: ubuntu-latest
+    if: startsWith(inputs.tag, 'miman-v')
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Validate release tag format
+        run: |
+          set -euo pipefail
+          printf '%s' "${{ inputs.tag }}" | grep -Eq '^miman-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' \
+            || { echo "release tags must match miman-vX.Y.Z" >&2; exit 1; }
+
+      - name: Validate tag is on origin/main
+        run: |
+          set -euo pipefail
+          git fetch origin main --depth=1
+          git merge-base --is-ancestor HEAD origin/main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          pip install ruff
+          pip install -e ".[test]"
+          pip install -r server/requirements.txt
+
+      - name: Run ruff check
+        run: ruff check server/main.py server/scripts/provision_service_key.py tests/server/
+
+      - name: Run pytest
+        run: pytest tests/server/test_leta_qdrant_config.py -q
+
+      - name: Run deploy-check
+        run: bash scripts/deploy-check.sh
+
+  publish:
+    name: Build and push DOCR image
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout tagged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Validate registry secret
+        run: |
+          set -euo pipefail
+          test -n "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}" || {
+            echo "Missing DIGITALOCEAN_ACCESS_TOKEN" >&2
+            exit 1
+          }
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Login to DigitalOcean Container Registry
+        run: doctl registry login --expiry-seconds 1200 --access-token "${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute image refs
+        id: refs
+        run: |
+          set -euo pipefail
+          base="${REGISTRY}/${REGISTRY_NAMESPACE}/${IMAGE_NAME}"
+          echo "image_version=${base}:${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          echo "image_sha=${base}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          provenance: false
+          build-args: |
+            IMAGE_SOURCE=${{ github.server_url }}/${{ github.repository }}
+            IMAGE_REVISION=${{ github.sha }}
+            IMAGE_VERSION=${{ inputs.tag }}
+          tags: |
+            ${{ steps.refs.outputs.image_version }}
+            ${{ steps.refs.outputs.image_sha }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ inputs.tag }}
+            org.opencontainers.image.title=miman
+          cache-from: type=gha,scope=miman
+          cache-to: type=gha,mode=max,scope=miman
+
+      - name: Publish summary
+        run: |
+          {
+            echo "### Images pushed"
+            echo ""
+            echo "- \`${{ steps.refs.outputs.image_version }}\`"
+            echo "- \`${{ steps.refs.outputs.image_sha }}\`"
+            echo ""
+            echo "CI stops here. Production deployment remains manual, host-side, and pull-based."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Logout from DOCR
+        if: always()
+        run: docker logout "${REGISTRY}" || true
