@@ -25,7 +25,7 @@ nothing and risks audit noise.
 | M0 | INFRA | Repo bootstrap: upstream remote, LETA_PATCH.md v1, CI-gate reality check | — | Sonnet 5 | no | MERGED | [#1](https://github.com/LetA-Tech/miman/pull/1) | — |
 | M1 | PATCH | Server patch layer: vector-store selector, healthz/readyz, boot probe, provisioning script, tests T-1..T-17 | M0 | Opus 4.8 | **yes** | MERGED (local gate; repo CI Actions pending) | [#2](https://github.com/LetA-Tech/miman/pull/2) | — |
 | M2 | INFRA | Prod image + deploy profile: Dockerfile, entrypoint, compose, env, deploy.sh smokes, Makefile targets, deploy/release scripts | M1 | Sonnet 5 | no | MERGED (A4 closed) | [#4](https://github.com/LetA-Tech/miman/pull/4) + [#5](https://github.com/LetA-Tech/miman/pull/5) | — |
-| M3 | RELEASE-infra | CI/CD: miman-checks.yml (+ci-gate reg), miman-cd.yml (+router arm), miman-upstream-sync.yml | M2 | Sonnet 5 | no | PENDING | — | — |
+| M3 | RELEASE-infra | CI/CD: miman-checks.yml (+ci-gate reg), miman-cd.yml (+router arm), miman-upstream-sync.yml | M2 | Sonnet 5 | no | MERGED (real CI green — Actions is now enabled on the fork) | [#8](https://github.com/LetA-Tech/miman/pull/8) | — |
 | MA1 | AUDIT | Fresh-session code-grounded wave audit (spec-vs-diff, full §12 acceptance sweep) | M3 | Opus 4.8 | no | PENDING | — | — |
 | MR1 | RELEASE | Cut `miman-v0.1.0-rc1`: release-all → router → DOCR; then bridge B-2 signal | MA1 | Sonnet 5 | no | PENDING | — | — |
 | MS-<tag> | SYNC | Recurring upstream sync (instantiate `MS_TEMPLATE.md` per upstream release tag) | MR1 | Opus 4.8 | **yes** | recurring | — | — |
@@ -112,6 +112,40 @@ new scripts clean; `make miman-test` → 30 passed (no regression vs M1).
 **A4 (live add→search→delete + member-key 403 pair) NOT run** — needs a real
 OpenAI/OpenRouter key for the embedder call, none available in-session; see decision log.
 
+**M3 (verified 2026-07-06 — real GitHub Actions run, not local-only, for the first time this
+track — see decision log for the Actions-enablement finding):**
+
+```bash
+actionlint .github/workflows/miman-checks.yml .github/workflows/miman-cd.yml \
+  .github/workflows/miman-upstream-sync.yml .github/workflows/release.yml \
+  .github/workflows/ci-gate.yml
+# -> (no output, exit 0)
+```
+
+PR #8's own CI Gate ran for real and went green, including all four new `miman` jobs
+(Ruff, LetA regression suite, Deploy-check, Docker build smoke) —
+https://github.com/LetA-Tech/miman/actions/runs/28768684375 (A1).
+
+Post-merge dry-runs against `main` (A4):
+- `gh workflow run miman-cd.yml -f tag=miman-v0.0.0-dry -f prerelease=false` →
+  `validate` job fails fast at checkout (`A branch or tag with the name 'miman-v0.0.0-dry'
+  could not be found`), `publish` job correctly skipped — proves the `needs:` gate and the
+  `startsWith(inputs.tag, 'miman-v')` guard both work
+  (https://github.com/LetA-Tech/miman/actions/runs/28768830617).
+- `gh workflow run miman-upstream-sync.yml` → green, logged `Recorded base
+  (LETA_PATCH.md): v2.0.11` / `Newest upstream release tag: v2.0.11` / `no drift: recorded
+  base is already at or ahead of upstream's newest release tag`
+  (https://github.com/LetA-Tech/miman/actions/runs/28768847439).
+
+R6 grep-proof: `grep -niE "pypi|npm publish|npmjs|twine|hatch publish"
+.github/workflows/miman-*.yml` → no matches. A3: `miman-v*) workflow="miman-cd.yml" ;;` at
+`release.yml:48`, bare `v*)` at `release.yml:49`.
+
+`DIGITALOCEAN_ACCESS_TOKEN`: confirmed absent (`gh secret list --repo LetA-Tech/miman` →
+empty), independent of the now-resolved Actions-enablement blocker. `miman-cd.yml`'s
+`publish` job fails fast with a clear message if dispatched before the secret exists — the
+first real (non-dry) release will need this from Lucas before MR1.
+
 ## Accepted-deviations register (PROPOSED by lanes → Lucas ratifies; never self-ratified)
 
 | # | Deviation vs spec 03-M | Proposed by | Status |
@@ -135,6 +169,8 @@ OpenAI/OpenRouter key for the embedder call, none available in-session; see deci
 | 2026-07-05 | **M2 MERGED ([#4](https://github.com/LetA-Tech/miman/pull/4)).** Shipped root `Dockerfile`+`.dockerignore` (editable local install for provenance-checkability — `mem0.__file__` resolves under `/app`, not a site-packages copy indistinguishable from a PyPI install), `docker/entrypoint.sh` (alembic-then-uvicorn), `deploy/{docker-compose.yml,.env.example,deploy.sh,README.md}`, `miman-*` Makefile targets, `scripts/{deploy-check,release-all}.sh`. Qdrant pin corrected `v1.18.3`→`v1.18.2-unprivileged` (DV-3, spec's tag doesn't exist). **A4 (live add→search→delete + member-key 403 smoke) not run this lane** — blocked on a real embedder API key; Lucas declined to paste one into chat and none was present in the session environment. `deploy/.env` is fully populated (generated secrets, valid `_v1` collection name) except `OPENAI_API_KEY`; filling that one line and running `bash deploy/deploy.sh` is the only step left to close A4 — tracked as a follow-up below, not silently dropped. Everything else verified with command output (A1,A2,A3,A5,A6; see CI gate section above). Local docker environment also needed two host-level fixes this session (Lucas-approved): Colima's docker disk was 100% full (110 of 111 volumes dangling, unrelated to miman) — full `docker system prune -a --volumes -f` reclaimed 16.68GB; `~/.docker/config.json` had `credsStore: desktop` pointing at a missing Docker Desktop binary, breaking all pulls — removed the key. Neither touches repo state. |
 | 2026-07-06 | Local working tree was found checked out on the undocumented `dev` branch (see 2026-07-05 finding above) instead of `main`, with pre-existing uncommitted deletions of unrelated repo files (`marketplace.json` ×4, `LICENSE`, `README.md`, `CONTRIBUTING.md`, `SECURITY.md`) — same anomaly, still untouched. Stashed those deletions (`git stash push -u`, not dropped) and switched back to `main`; M2's merged state was intact on `main` throughout, only the local checkout's branch pointer was wrong. Root cause of the checkout drift not identified this session — flagged as a follow-up below. |
 | 2026-07-06 | **M2 fixup MERGED ([#5](https://github.com/LetA-Tech/miman/pull/5)).** Lucas supplied a real `OPENAI_API_KEY` directly into `deploy/.env` (never in chat). First `deploy.sh` run surfaced three real bugs (not local-env noise), all fixed: `appdb` (postgres:18-alpine) mount path for pg18's new data-dir layout, `qdrant` healthcheck rewritten for the `-unprivileged` image (no wget/curl, `/bin/sh` is dash not bash — needs explicit `bash -c` + `/dev/tcp`), `QDRANT_API_KEY` made mandatory (DV-4 — blank-but-set broke qdrant auth against the app's no-header-when-empty behavior). Also caught and reverted a bad edit to `.env.example`'s model IDs (that file is an OpenRouter-flavored reference — `openai/`-prefixed model IDs are correct there; only the live, native-OpenAI-targeting `.env` needed bare model IDs). Full `deploy.sh` run green end to end: A4 now PASSES (add→search→delete + both member-key 403s). |
+| 2026-07-06 | **GitHub Actions is now enabled on the fork** (finding, not a miman change — Lucas clicked the web-UI consent banner between the M2 fixup and this M3 session). Discovered when M3's own PR (#8) triggered a real `CI Gate` run instead of nothing: `gh workflow list` now shows the repo's own workflows (`CI Gate`, `ci`, `miman checks`, etc.) alongside the default Dependency Graph/CodeQL, where M0-M2 only ever saw the latter two. This **resolves the M0-tracked "GitHub Actions enablement" urgent follow-up** — moved out of the follow-up list below. Consequence for MA1: the wave audit can now re-run the M1/M2 suites via real CI instead of only local-gate re-verification. |
+| 2026-07-06 | **M3 MERGED ([#8](https://github.com/LetA-Tech/miman/pull/8)).** Shipped `miman-checks.yml` (ruff → pytest → deploy-check → docker build, chained via `needs:`), `ci-gate.yml` registration (`miman` filter/call-job/needs entry, additive), `miman-cd.yml` (`workflow_dispatch` tag/prerelease inputs, `validate`→`publish`, doctl DOCR login, buildx push `miman:<tag>`+`miman:<sha>`), one-line `release.yml` router arm (`miman-v*` above bare `v*`), `miman-upstream-sync.yml` (weekly cron + dispatch, `git ls-remote` + `sort -V` drift check against `LETA_PATCH.md`'s recorded Sync-horizon tag, clean-merge→PR / conflict→fail-loud, never auto-merges, never tracks `upstream/main`). Real CI Gate went green on the PR itself (A1) — first genuinely-live verification this track, since Actions was enabled between M2 fixup and this session (see finding above). Post-merge dry-runs on `main` proved both new dispatchable workflows wire correctly (A4; see CI gate section). No new deviations proposed. `DIGITALOCEAN_ACCESS_TOKEN` confirmed absent — recorded as a Lucas follow-up, blocking only the eventual real `miman-cd.yml` publish (MR1), not this lane's merge. Tracker update itself landed as a small separate follow-up PR ([#9](https://github.com/LetA-Tech/miman/pull/9)) since PR #8 was already merged before this file was updated — process note for future lanes: update the tracker *before* merging, not after. |
 
 ## Follow-up candidates (one-liners; not scope for any current lane)
 
@@ -147,8 +183,6 @@ OpenAI/OpenRouter key for the embedder call, none available in-session; see deci
   additive-only). Migrate to a lifespan handler if/when upstream adds one (then it's a
   one-line hook into their lifespan, still additive).
 - Branch protection on `main` (Lucas, GitHub settings) — M0 do-not-touch (no API attempt made).
-- **GitHub Actions enablement on the fork (Lucas, web-UI Actions tab — URGENT: blocks repo
-  CI for M1+; no API path).** After clicking: `gh workflow list` must show repo workflows.
 - Optional: detach repo from the fork network (GitHub Support request) — removes fork
   banner/PR-default hazards permanently; only worth it if fork limits keep biting.
 - `ci.yml`'s `pip install -e ".[test,graph,vector_stores,llms,extras]"` references a `graph`
@@ -164,3 +198,7 @@ OpenAI/OpenRouter key for the embedder call, none available in-session; see deci
   (found 2026-07-06, see decision log) — cause not root-caused (no shell history captured
   showing `git checkout dev`). If it recurs, check for an editor/tool auto-switching branches
   on this machine.
+- **`DIGITALOCEAN_ACCESS_TOKEN` repo secret (Lucas, GitHub Settings → Secrets and
+  variables → Actions)** — confirmed absent 2026-07-06 (`gh secret list` empty). Blocks
+  only the real (non-dry) `miman-cd.yml` publish job; not needed before MR1 dry-run
+  rehearsal, but required before MR1 actually cuts `miman-v0.1.0-rc1`.
