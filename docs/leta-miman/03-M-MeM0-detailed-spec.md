@@ -524,7 +524,16 @@ fork's `vX.Y.Z` image tags are therefore **forbidden** in miman.
 
 ### 6.4 Upstream sync — `miman-upstream-sync.yml` (new file)
 
-Weekly schedule + manual dispatch:
+**Sync policy (Lucas, 2026-07-05 — manual-first):** the workflow is a **detector and
+PR-opener only**; it never merges and it is not the sync. Every actual sync is a manual
+**MS-\<tag\> lane** (standing dispatch: `docs/leta-miman/MS_SYNC_DISPATCH.md`),
+P6.5-gated. Cadence is **on-demand, not calendar
+churn**: instantiate an MS lane only for (a) a security fix touching our surface, (b) a
+capability finsor/finmem concretely needs, or (c) periodic hygiene when drift has
+accumulated (quarterly review is enough). **Stable release tags only** — never
+`upstream/main`, never rc/beta/pre-release tags. The cron trigger is optional; on a
+GitHub fork scheduled workflows are disabled by default, which matches this policy —
+`workflow_dispatch` is the expected invocation. Workflow behavior when run:
 
 ```text
 fetch upstream --tags
