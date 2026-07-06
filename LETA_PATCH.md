@@ -69,9 +69,24 @@ no existing upstream function is modified; the single existing-line change is th
 D-2 — regression-guarded by T-10). `infer` stays upstream-default; FinMem owns the
 default (§3.5, D-3 — single-record invariant pinned by T-13).
 
+## Shipped at M2 — production image + deploy profile (spec §4.3-4.4, §5.4-5.5, §6.1, §9.3, §12 items 4-7)
+
+| # | File | Kind | What LetA changed (spec) |
+|---|---|---|---|
+| L4 | `Dockerfile` (root) | A (new) | Multi-stage-free image: `python:3.12-slim` (conflict pin, matches upstream `ci.yml`'s 3.10-3.12 matrix); `libpq5` runtime for bare `psycopg`; editable install (`pip install -e .`) of the **local** `mem0/` tree so `mem0.__file__` resolves under `/app` (image-provenance proof, not a site-packages copy indistinguishable from a PyPI install); `server/requirements.txt`'s `mem0ai` line filtered before install; non-root `miman:10001`; `/app/history` writable; `HEALTHCHECK GET /healthz`; `ENTRYPOINT docker/entrypoint.sh` (no `--reload`) |
+| L5 | `.dockerignore` (root) | A (new) | Ports the deprecated-repo pattern to the current layout (`integrations/`, `cli/`, `mem0-ts/`, `openmemory/`, `evaluation/`, `skills/` excluded; `embedchain/` no longer exists upstream); additionally excludes `server/dashboard/` (separate Next.js app, not shipped — miman runs headless per §5.4) and the dev-only `server/dev.Dockerfile`/`server/docker-compose.yaml`/`server/init-db.sh` |
+| L6 | `docker/entrypoint.sh` | A (new) | `alembic upgrade head` (idempotent) then `exec uvicorn main:app --host 0.0.0.0 --port 8000`; runs from `WORKDIR /app/server` so `alembic.ini`'s relative `script_location` and `server/db.py`'s env-driven `_build_database_url()` resolve correctly |
+| L7 | `deploy/{docker-compose.yml,.env.example,deploy.sh,README.md}` | A (new) | LetA profile: `miman` + `qdrant` (`qdrant/qdrant:v1.18.2-unprivileged` — **spec's `v1.18.3-unprivileged` pin does not exist on Docker Hub; `v1.18.2-unprivileged` is the actual latest stable line as of 2026-07-05, verified by pull**) + `appdb` (`postgres:18-alpine`, confirmed `postgres (PostgreSQL) 18.4`); 127.0.0.1-only bind on miman, no host ports on qdrant/appdb, `no-new-privileges`, private bridge network, no dashboard; compose bridges `.env`'s `POSTGRES_DB` to the app's `APP_DB_NAME` env var (the app reads `APP_DB_NAME`, not `POSTGRES_DB` — that var only bootstraps the appdb container's initial database; the two must agree or the app can't find its schema) |
+| L8 | `Makefile` (root) | M (additive) | `miman-test`, `miman-docker-build`, `miman-deploy-check`, `miman-release-all`, `miman-compose-config` — all prefixed, zero edits to existing targets |
+| L9 | `scripts/deploy-check.sh` | A (new) | P9-style static checks: required files/executables, `miman-*` Makefile targets present, `bash -n` on all new scripts, `MEM0_VECTOR_STORE=qdrant` + `QDRANT_URL` private-service assert, `_v<N>` collection suffix, `MEM0_TELEMETRY=false`, no `MEM0_API_KEY`, no public compose binds, no `:latest` images, no tracked `.env`, `miman-v` prefix in `release-all.sh`. Read-only — reran twice, idempotent |
+| L10 | `scripts/release-all.sh` | A (new) | P10 guards (version format, on `main`, clean tree, synced with `origin/main`, new tag) then `gh release create` tagged `miman-v${VERSION}` targeting `main` — a GitHub Release (not a bare tag push), since `release.yml`'s router only listens on `release: published` (spec §6.3). **Not executed this lane** (dispatch R8) |
+
+**Image pins verified at implementation (2026-07-05):** `python:3.12-slim` (conflict pin, unchanged), `postgres:18-alpine` → `18.4` (matches spec), `qdrant/qdrant:v1.18.2-unprivileged` (spec said `v1.18.3-unprivileged`; corrected — see deviations register).
+
+**Known gap (credentials, not code):** the live `deploy.sh` add→search→delete smoke (acceptance A4, spec §12 item 4) needs a real `OPENAI_API_KEY`/OpenRouter key for the embedder call; none was available in this session's environment and Lucas declined to paste one into chat. `deploy/.env` is fully populated (generated `JWT_SECRET`/`ADMIN_API_KEY`/`POSTGRES_PASSWORD`, valid `_v1` collection name) except that one line — filling it in and running `bash deploy/deploy.sh` is the only remaining step to close A4. Everything not requiring a live embedder call was verified: image build (A1), provenance + no-floating-install (A3), non-root (A5), deploy-check green twice (A2), `docker compose config` render, all new scripts `bash -n` clean, `miman-test` 30/30 green (no regression vs M1).
+
 ## Remaining lanes
 
-- M2 — production image + deploy profile
 - M3 — CI/CD (miman-checks.yml, miman-cd.yml, miman-upstream-sync.yml)
 
 Each lane updates this file with what it actually shipped.
