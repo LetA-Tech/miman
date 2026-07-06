@@ -1,0 +1,138 @@
+name: miman upstream sync
+
+# Weekly drift check against mem0ai/mem0 release tags (spec 03-M §6.4). Syncs
+# to upstream release tags ONLY, never upstream/main. No-drift is green and
+# silent; drift with a clean merge opens a PR for human review; a merge
+# conflict fails the run loudly. This workflow never merges its own PR.
+on:
+  schedule:
+    - cron: '17 6 * * 1' # Monday 06:17 UTC — arbitrary off-peak slot
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  UPSTREAM_URL: https://github.com/mem0ai/mem0.git
+
+jobs:
+  sync:
+    name: Check upstream drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Determine recorded base and newest upstream tag
+        id: tags
+        run: |
+          set -euo pipefail
+
+          base_tag="$(grep 'Sync horizon' LETA_PATCH.md | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+          [ -n "$base_tag" ] || { echo "::error::could not find recorded base tag in LETA_PATCH.md" >&2; exit 1; }
+
+          newest_tag="$(git ls-remote --tags "$UPSTREAM_URL" \
+            | awk '{print $2}' | sed 's#refs/tags/##' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | sort -V | tail -1)"
+          [ -n "$newest_tag" ] || { echo "::error::could not determine newest upstream tag" >&2; exit 1; }
+
+          echo "Recorded base (LETA_PATCH.md): $base_tag"
+          echo "Newest upstream release tag:   $newest_tag"
+
+          drift=true
+          if [ "$newest_tag" = "$base_tag" ]; then
+            drift=false
+          else
+            highest="$(printf '%s\n%s\n' "$base_tag" "$newest_tag" | sort -V | tail -1)"
+            [ "$highest" = "$newest_tag" ] || drift=false
+          fi
+
+          {
+            echo "base_tag=$base_tag"
+            echo "newest_tag=$newest_tag"
+            echo "drift=$drift"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ "$drift" = "false" ]; then
+            echo "no drift: recorded base is already at or ahead of upstream's newest release tag"
+          else
+            echo "drift detected: $base_tag -> $newest_tag"
+          fi
+
+      - name: Attempt sync merge
+        if: steps.tags.outputs.drift == 'true'
+        id: merge
+        env:
+          NEWEST_TAG: ${{ steps.tags.outputs.newest_tag }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          branch="sync/upstream-${NEWEST_TAG}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch upstream "refs/tags/${NEWEST_TAG}:refs/tags/${NEWEST_TAG}"
+          git checkout -b "$branch"
+
+          if git merge --no-ff "refs/tags/${NEWEST_TAG}" -m "Merge upstream ${NEWEST_TAG} (miman sync)"; then
+            echo "clean_merge=true" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort || true
+            echo "::error::merge conflict syncing upstream ${NEWEST_TAG} — resolve by hand, this workflow never auto-resolves or auto-merges" >&2
+            exit 1
+          fi
+
+      - name: Push branch and open sync PR
+        if: steps.tags.outputs.drift == 'true' && steps.merge.outputs.clean_merge == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEWEST_TAG: ${{ steps.tags.outputs.newest_tag }}
+          BASE_TAG: ${{ steps.tags.outputs.base_tag }}
+          BRANCH: ${{ steps.merge.outputs.branch }}
+        run: |
+          set -euo pipefail
+
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --repo LetA-Tech/miman \
+            --base main \
+            --head "$BRANCH" \
+            --title "Sync: upstream ${NEWEST_TAG}" \
+            --body "$(cat <<EOF
+          Upstream drift detected: recorded base \`${BASE_TAG}\` -> newest release \`${NEWEST_TAG}\`.
+
+          Clean merge (no conflicts). **Never auto-merged** — review required before merge.
+          Re-run the full \`miman-checks\` suite (via CI Gate on this PR) before approving,
+          and re-freeze FinMem fixtures only if the wire surface changed (09B.7).
+
+          ## Protected-file review checklist
+
+          - [ ] \`server/main.py\`
+          - [ ] \`server/auth.py\`
+          - [ ] \`server/db.py\`
+          - [ ] \`server/requirements.txt\`
+          - [ ] \`server/alembic/**\`
+          - [ ] \`mem0/configs/vector_stores/qdrant.py\`
+          - [ ] \`mem0/vector_stores/configs.py\`
+          - [ ] \`mem0/vector_stores/qdrant.py\`
+          - [ ] \`mem0/llms/openai.py\`
+          - [ ] \`mem0/embeddings/openai.py\`
+          - [ ] \`mem0/memory/main.py\` (infer + search signatures)
+          - [ ] root \`Dockerfile\`
+          - [ ] \`deploy/**\`
+          - [ ] \`scripts/**\`
+          - [ ] \`.github/workflows/release.yml\`
+          - [ ] \`.github/workflows/ci-gate.yml\`
+          - [ ] \`tests/server/**\`
+          - [ ] \`LETA_PATCH.md\` (bump the recorded Sync horizon tag)
+          EOF
+          )"

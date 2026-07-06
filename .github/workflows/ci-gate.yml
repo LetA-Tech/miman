@@ -41,6 +41,7 @@ jobs:
       opencode_plugin: ${{ steps.filter.outputs.opencode_plugin }}
       pi_agent_plugin: ${{ steps.filter.outputs.pi_agent_plugin }}
       docs_llms_txt: ${{ steps.filter.outputs.docs_llms_txt }}
+      miman: ${{ steps.filter.outputs.miman }}
     steps:
       - uses: dorny/paths-filter@v3
         id: filter
@@ -85,6 +86,16 @@ jobs:
               - 'scripts/check-llms-txt-coverage.py'
               - 'scripts/llms-txt-ignore.txt'
               - '.github/workflows/docs-llms-txt-check.yml'
+              - '.github/workflows/ci-gate.yml'
+            miman:
+              - 'server/**'
+              - 'deploy/**'
+              - 'scripts/deploy-check.sh'
+              - 'scripts/release-all.sh'
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'tests/server/**'
+              - '.github/workflows/miman-checks.yml'
               - '.github/workflows/ci-gate.yml'
 
   python-sdk:
@@ -143,6 +154,13 @@ jobs:
     uses: ./.github/workflows/docs-llms-txt-check.yml
     secrets: inherit
 
+  miman:
+    name: miman
+    needs: changes
+    if: needs.changes.outputs.miman == 'true'
+    uses: ./.github/workflows/miman-checks.yml
+    secrets: inherit
+
   gate:
     name: CI Gate
     needs:
@@ -155,6 +173,7 @@ jobs:
       - opencode-plugin
       - pi-agent-plugin
       - docs-llms-txt
+      - miman
     if: always()
     runs-on: ubuntu-latest
     steps:
