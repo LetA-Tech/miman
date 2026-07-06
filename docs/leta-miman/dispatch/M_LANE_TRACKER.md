@@ -24,7 +24,7 @@ nothing and risks audit noise.
 |---|---|---|---|---|---|---|---|---|
 | M0 | INFRA | Repo bootstrap: upstream remote, LETA_PATCH.md v1, CI-gate reality check | — | Sonnet 5 | no | MERGED | [#1](https://github.com/LetA-Tech/miman/pull/1) | — |
 | M1 | PATCH | Server patch layer: vector-store selector, healthz/readyz, boot probe, provisioning script, tests T-1..T-17 | M0 | Opus 4.8 | **yes** | MERGED (local gate; repo CI Actions pending) | [#2](https://github.com/LetA-Tech/miman/pull/2) | — |
-| M2 | INFRA | Prod image + deploy profile: Dockerfile, entrypoint, compose, env, deploy.sh smokes, Makefile targets, deploy/release scripts | M1 | Sonnet 5 | no | MERGED (A4 live smoke pending real embedder key) | PR-TBD | — |
+| M2 | INFRA | Prod image + deploy profile: Dockerfile, entrypoint, compose, env, deploy.sh smokes, Makefile targets, deploy/release scripts | M1 | Sonnet 5 | no | MERGED (A4 live smoke pending real embedder key) | [#4](https://github.com/LetA-Tech/miman/pull/4) | — |
 | M3 | RELEASE-infra | CI/CD: miman-checks.yml (+ci-gate reg), miman-cd.yml (+router arm), miman-upstream-sync.yml | M2 | Sonnet 5 | no | PENDING | — | — |
 | MA1 | AUDIT | Fresh-session code-grounded wave audit (spec-vs-diff, full §12 acceptance sweep) | M3 | Opus 4.8 | no | PENDING | — | — |
 | MR1 | RELEASE | Cut `miman-v0.1.0-rc1`: release-all → router → DOCR; then bridge B-2 signal | MA1 | Sonnet 5 | no | PENDING | — | — |
