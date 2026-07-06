@@ -12,14 +12,11 @@ name: miman
 services:
 
   miman:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-      args:
-        IMAGE_SOURCE: https://github.com/LetA-Tech/miman
-        IMAGE_REVISION: ${IMAGE_REVISION:-dev-local}
-        IMAGE_VERSION: ${IMAGE_VERSION:-dev-local}
-    image: miman:${IMAGE_VERSION:-dev-local}
+    # Pull the released image from DOCR — never built on the host. CD ships a
+    # moving `latest` plus immutable miman-vX.Y.Z + sha tags; the deploy tracks
+    # `latest` so .env never needs a per-release tag bump (fleet doctrine).
+    image: ${MIMAN_IMAGE_REPO:-registry.digitalocean.com/leta-container-registry/miman}:${IMAGE_VERSION:-latest}
+    pull_policy: always
     container_name: miman
     restart: unless-stopped
     ports:

@@ -36,13 +36,15 @@ client).
 ```bash
 cd deploy/
 cp .env.example .env
-# Fill in: JWT_SECRET, ADMIN_API_KEY, POSTGRES_PASSWORD, QDRANT_COLLECTION_NAME
-# (must end _v<N> — spec §5.5), OPENAI_API_KEY (+ OPENAI_BASE_URL if routing
-# through OpenRouter), IMAGE_VERSION/IMAGE_REVISION for a tagged release.
+# Fill in: MIMAN_BIND_IP (VPC-private host IP), JWT_SECRET, ADMIN_API_KEY,
+# POSTGRES_PASSWORD, QDRANT_COLLECTION_NAME (must end _v<N> — spec §5.5),
+# OPENAI_API_KEY (+ OPENAI_BASE_URL if routing through OpenRouter). IMAGE_VERSION
+# defaults to `latest` and never needs bumping (see "Tagging a release").
 bash deploy.sh
 ```
 
-`deploy.sh` builds the image, brings up the stack, waits for `/healthz` and `/readyz`,
+`deploy.sh` **pulls the released image from DOCR** (`latest`), brings up the stack, waits
+for `/healthz` and `/readyz`,
 provisions a scratch member-role service key (via `server/scripts/provision_service_key.py`,
 spec §3.4 delta-6), and runs the behavior smoke: authenticated add→search→delete
 round-trip under that key, plus proof that the same non-admin key gets **403** on
@@ -60,14 +62,16 @@ docker compose down -v    # also wipe qdrant/appdb data
 ## Tagging a release
 
 ```bash
-make miman-release-all VERSION=X.Y.Z
+make release-all VERSION=X.Y.Z    # main only; clean tree; new tag
 ```
 
 Pushes `main` and creates a GitHub Release tagged `miman-vX.Y.Z`, which the release
-router (`release.yml`) dispatches to `miman-cd.yml` (lane M3) to build and push the
-image to DOCR. **CI builds immutable images only — it does not deploy.** Point
-`IMAGE_VERSION` in your `.env` at the released tag and re-run `deploy.sh` on the target
-host to roll forward.
+router (`release.yml`) dispatches to `miman-cd.yml` to build and push the image to DOCR
+under three tags: the immutable `miman-vX.Y.Z` + commit `sha`, and the moving `latest`.
+**CI builds immutable images only — it does not deploy.** Because the deploy tracks
+`latest`, rolling forward is just re-running `deploy.sh` on the host (it pulls the new
+`latest`) — **no `.env` edit per release.** Pin `IMAGE_VERSION` to a specific
+`miman-vX.Y.Z` only to freeze a rollback target.
 
 ---
 

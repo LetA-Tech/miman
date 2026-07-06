@@ -59,9 +59,8 @@ qdrant_api_key="$(env_value QDRANT_API_KEY)"
 log "validating compose config"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
 
-log "building + pulling images"
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull --ignore-buildable 2>/dev/null || true
+log "pulling released image from DOCR"
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" pull
 
 log "starting stack"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --remove-orphans

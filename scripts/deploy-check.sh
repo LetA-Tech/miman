@@ -81,9 +81,11 @@ require_no_public_compose_binds() {
 }
 
 require_no_latest_images() {
-  if grep -R -n -E '(:latest|TAG:-latest)' \
-      "${REPO_ROOT}/Dockerfile" "$DEPLOY_COMPOSE" >/dev/null; then
-    fail "release/deploy artifacts must not use floating :latest image tags"
+  # The deploy compose intentionally tracks the DOCR `latest` tag (fleet
+  # doctrine — CD also ships immutable miman-vX.Y.Z + sha tags for rollback),
+  # so only the Dockerfile base images are held to the no-floating-tag rule.
+  if grep -R -n -E '(:latest|TAG:-latest)' "${REPO_ROOT}/Dockerfile" >/dev/null; then
+    fail "Dockerfile base images must not use floating :latest tags"
   fi
 }
 
@@ -130,7 +132,7 @@ require_file "${REPO_ROOT}/tests/server/test_leta_qdrant_config.py"
 require_make_target miman-test
 require_make_target miman-docker-build
 require_make_target miman-deploy-check
-require_make_target miman-release-all
+require_make_target release-all
 require_make_target miman-compose-config
 
 bash -n "${REPO_ROOT}/scripts/release-all.sh"
