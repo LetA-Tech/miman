@@ -44,6 +44,12 @@ if [[ "$auth_disabled" != "true" && -z "$jwt_secret" ]]; then
     fail "JWT_SECRET unset and AUTH_DISABLED is not true. miman will refuse to boot."
 fi
 
+# QDRANT_API_KEY is mandatory in this profile (docker-compose.yml enforces it
+# via ${QDRANT_API_KEY:?...} too) — an empty-but-set key makes qdrant demand
+# an Api-Key header the app never sends, a 401 loop that looks like a network bug.
+qdrant_api_key="$(env_value QDRANT_API_KEY)"
+[[ -n "$qdrant_api_key" ]] || fail "QDRANT_API_KEY unset. Generate one: openssl rand -base64 32"
+
 log "validating compose config"
 docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" config >/dev/null
 
