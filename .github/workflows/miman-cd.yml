@@ -1,4 +1,4 @@
-name: Publish miman 🧠 image to DOCR
+name: Publish miman image to DOCR
 
 # Dispatched by release.yml (Release Router) when a release tagged miman-v*
 # is published. Can also be dispatched manually to re-publish a tag.
@@ -6,11 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to build and publish (e.g. miman-v0.1.0)'
+        description: "Release tag to build and publish (e.g. miman-v0.1.0)"
         required: true
         type: string
       prerelease:
-        description: 'Unused for DOCR (image tags are immutable per-tag); accepted for router uniformity'
+        description: "Unused for DOCR (image tags are immutable per-tag); accepted for router uniformity"
         required: false
         type: boolean
         default: false
@@ -47,7 +47,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: "3.12"
 
       - name: Install dependencies
         run: |
