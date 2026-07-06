@@ -53,12 +53,14 @@ require_env_key() {
 }
 
 require_no_canonical_mem0_cloud() {
+  # LETA_PATCH.md is a changelog, not a release/deploy artifact — it
+  # necessarily *names* MEM0_API_KEY when documenting this very check
+  # (self-match false positive), so it's excluded from the scan.
   if grep -R -n 'MEM0_API_KEY' \
       "${REPO_ROOT}/Dockerfile" \
       "${REPO_ROOT}/Makefile" \
       "${REPO_ROOT}/scripts/release-all.sh" \
-      "${REPO_ROOT}/deploy" \
-      "${REPO_ROOT}/LETA_PATCH.md" >/dev/null 2>&1; then
+      "${REPO_ROOT}/deploy" >/dev/null 2>&1; then
     fail "canonical LetA release/deploy artifacts must not use MEM0_API_KEY"
   fi
 }
