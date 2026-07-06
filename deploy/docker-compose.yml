@@ -62,12 +62,18 @@ services:
       - QDRANT__SERVICE__HOST=0.0.0.0
       - QDRANT__SERVICE__HTTP_PORT=6333
       - QDRANT__SERVICE__GRPC_PORT=6334
-      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
+      # mandatory, not left optional: qdrant treats an env-var-present-but-empty
+      # key as "auth on, expect blank key" while the app sends no header at all
+      # when its own QDRANT_API_KEY is empty (server/main.py) — that mismatch
+      # 401s. Requiring a real key here removes the broken half-configured state.
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:?set QDRANT_API_KEY in deploy/.env}
       - QDRANT__TELEMETRY_DISABLED=true
     volumes:
       - qdrant_storage:/qdrant/storage
+    # unprivileged qdrant image ships no wget/curl; bash's /dev/tcp is the only
+    # HTTP-capable tool present.
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:6333/healthz || exit 1"]
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/6333 && printf 'GET /healthz HTTP/1.0\\r\\n\\r\\n' >&3 && head -1 <&3 | grep -q 200"]
       interval: 10s
       timeout: 3s
       retries: 6
@@ -87,8 +93,10 @@ services:
       - POSTGRES_USER=${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       - POSTGRES_DB=${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}
+    # postgres:18+ images use a versioned PGDATA subdir; mounting the parent
+    # (not .../data) is the image's own required layout as of pg 18 (docker-library/postgres#1259).
     volumes:
-      - appdb_data:/var/lib/postgresql/data
+      - appdb_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 10s
