@@ -87,8 +87,10 @@ The deprecated stack stays deployable until the X-4 exit criteria pass (spec §1
 
 ## What `/deploy/` here MUST NOT do
 
-- Publish ports beyond `127.0.0.1:8000` for miman — Qdrant and Postgres publish no host
-  ports at all (reachable only on the private `miman-net` bridge network).
+- Publish the miman API on anything other than the VPC-private interface
+  (`${MIMAN_BIND_IP}:8000`, e.g. `10.118.0.3:8000`) — **never** `0.0.0.0` or the host's
+  public IP. MeM0 is internal-only; finsor reaches it across the VPC. Qdrant and Postgres
+  publish no host ports at all (reachable only on the private `miman-net` bridge network).
 - Run with `AUTH_DISABLED=true` outside a throwaway local smoke test.
 - Send telemetry — `MEM0_TELEMETRY=false` is asserted by `scripts/deploy-check.sh`.
 - Hold a tracked `.env` file — `.env` is git-ignored; `scripts/deploy-check.sh` fails the

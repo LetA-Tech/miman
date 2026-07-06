@@ -13,7 +13,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 ENV_FILE="$SCRIPT_DIR/.env"
-BASE_URL="http://127.0.0.1:8000"
 TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 log()  { printf '[%s] %s\n' "$TS" "$*"; }
@@ -35,6 +34,13 @@ env_value() {
     }
   ' "$ENV_FILE" | tail -1
 }
+
+# The API publishes on the VPC-private interface only (compose binds
+# ${MIMAN_BIND_IP}:8000) — smoke against that same address, not loopback, which
+# is no longer published on the host.
+MIMAN_BIND_IP="$(env_value MIMAN_BIND_IP)"
+[[ -n "$MIMAN_BIND_IP" ]] || fail "MIMAN_BIND_IP unset in .env (VPC-private IP the API publishes on, e.g. 10.118.0.3)"
+BASE_URL="http://${MIMAN_BIND_IP}:8000"
 
 # Refuse to run if AUTH_DISABLED is not true and JWT_SECRET is missing — that
 # combination means the server will refuse to boot. Surface the fix early.
