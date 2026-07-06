@@ -1,0 +1,112 @@
+# ============================================================================
+# miman — LetA deployment profile (Qdrant-native, spec 03-M §5.4)
+# ============================================================================
+# miman + qdrant + appdb. Headless (no dashboard — admin access is
+# ADMIN_API_KEY/admin JWT via finmem-admin, spec §5.4). Binds only to
+# 127.0.0.1; qdrant/appdb have no host ports at all.
+# ============================================================================
+
+name: miman
+
+services:
+
+  miman:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        IMAGE_SOURCE: https://github.com/LetA-Tech/miman
+        IMAGE_REVISION: ${IMAGE_REVISION:-dev-local}
+        IMAGE_VERSION: ${IMAGE_VERSION:-dev-local}
+    image: miman:${IMAGE_VERSION:-dev-local}
+    container_name: miman
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Container-network identity — not operator-configurable via .env
+      # (must match the appdb/qdrant service names below).
+      - POSTGRES_HOST=appdb
+      - POSTGRES_PORT=5432
+      # db.py reads APP_DB_NAME, not POSTGRES_DB (that var only bootstraps
+      # the appdb container's initial database) — bridge them here so both
+      # sides agree on the same database name.
+      - APP_DB_NAME=${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}
+      - POSTGRES_USER=${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      appdb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 15s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - miman-net
+
+  qdrant:
+    image: qdrant/qdrant:v1.18.2-unprivileged
+    container_name: miman-qdrant
+    restart: unless-stopped
+    # No host ports — reached only by the miman container on the internal network.
+    environment:
+      - QDRANT__SERVICE__HOST=0.0.0.0
+      - QDRANT__SERVICE__HTTP_PORT=6333
+      - QDRANT__SERVICE__GRPC_PORT=6334
+      - QDRANT__SERVICE__API_KEY=${QDRANT_API_KEY:-}
+      - QDRANT__TELEMETRY_DISABLED=true
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:6333/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - miman-net
+
+  appdb:
+    image: postgres:18-alpine
+    container_name: miman-appdb
+    restart: unless-stopped
+    # miman's own app DB (auth users/API keys, request logs, alembic) — not
+    # the vector store (spec §5.4: "Qdrant-native" does not mean "no Postgres").
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      - POSTGRES_DB=${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}
+    volumes:
+      - appdb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - miman-net
+
+volumes:
+  qdrant_storage:
+    name: miman_qdrant_storage
+  appdb_data:
+    name: miman_appdb_data
+
+networks:
+  miman-net:
+    name: miman_net
+    driver: bridge

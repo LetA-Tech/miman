@@ -24,7 +24,7 @@ nothing and risks audit noise.
 |---|---|---|---|---|---|---|---|---|
 | M0 | INFRA | Repo bootstrap: upstream remote, LETA_PATCH.md v1, CI-gate reality check | — | Sonnet 5 | no | MERGED | [#1](https://github.com/LetA-Tech/miman/pull/1) | — |
 | M1 | PATCH | Server patch layer: vector-store selector, healthz/readyz, boot probe, provisioning script, tests T-1..T-17 | M0 | Opus 4.8 | **yes** | MERGED (local gate; repo CI Actions pending) | [#2](https://github.com/LetA-Tech/miman/pull/2) | — |
-| M2 | INFRA | Prod image + deploy profile: Dockerfile, entrypoint, compose, env, deploy.sh smokes, Makefile targets, deploy/release scripts | M1 | Sonnet 5 | no | PENDING | — | — |
+| M2 | INFRA | Prod image + deploy profile: Dockerfile, entrypoint, compose, env, deploy.sh smokes, Makefile targets, deploy/release scripts | M1 | Sonnet 5 | no | MERGED (A4 live smoke pending real embedder key) | [#4](https://github.com/LetA-Tech/miman/pull/4) | — |
 | M3 | RELEASE-infra | CI/CD: miman-checks.yml (+ci-gate reg), miman-cd.yml (+router arm), miman-upstream-sync.yml | M2 | Sonnet 5 | no | PENDING | — | — |
 | MA1 | AUDIT | Fresh-session code-grounded wave audit (spec-vs-diff, full §12 acceptance sweep) | M3 | Opus 4.8 | no | PENDING | — | — |
 | MR1 | RELEASE | Cut `miman-v0.1.0-rc1`: release-all → router → DOCR; then bridge B-2 signal | MA1 | Sonnet 5 | no | PENDING | — | — |
@@ -93,12 +93,24 @@ failures are the Postgres-needing cases. Neither is introduced by M1. (Counts di
 M0's recorded 816/56 because M0's env had `server/` importable — MA1 re-runs on the CI
 image where both are moot.)
 
-**From M2 onward:**
+**From M2 onward (verified green on this machine 2026-07-05):**
 
 ```bash
 docker build -t miman:gate .
+# -> Successfully tagged miman:gate
 bash scripts/deploy-check.sh
+# -> deploy-check: ok  (run twice — idempotent)
 ```
+
+Additional M2 verification: `make miman-docker-build VERSION=0.0.0-audit` (A1) green;
+`docker run --rm --entrypoint python miman:0.0.0-audit -c "import mem0; print(mem0.__file__)"`
+→ `/app/mem0/__init__.py` (A3, editable install resolves under `/app`, not site-packages);
+`docker history miman:0.0.0-audit --no-trunc | grep -c "pip install.*mem0ai"` → `0` (A3);
+`docker run --rm --entrypoint id miman:0.0.0-audit` → `uid=10001(miman) gid=10001(miman)`
+(A5); `docker compose -f deploy/docker-compose.yml config` renders clean; `bash -n` on all
+new scripts clean; `make miman-test` → 30 passed (no regression vs M1).
+**A4 (live add→search→delete + member-key 403 pair) NOT run** — needs a real
+OpenAI/OpenRouter key for the embedder call, none available in-session; see decision log.
 
 ## Accepted-deviations register (PROPOSED by lanes → Lucas ratifies; never self-ratified)
 
@@ -106,6 +118,7 @@ bash scripts/deploy-check.sh
 |---|---|---|---|
 | DV-1 | `provision_service_key.py` moves lane M2 → M1 and lives at `server/scripts/` (PATCH taxonomy: imports server models, needs pytest coverage; mirrors upstream `server/scripts/reset_admin_password.py`; keeps M2 pure INFRA) | dispatch pack (architect) | RATIFIED at pack creation — spec §3.4/§4.6/§11 updated to match |
 | DV-2 | Spec §11 "M5 — release" renamed lane **MR1**; **M5/MS = upstream-sync cadence** per DISPATCH_GUIDE lane organization (guide is dispatch authority) | dispatch pack (architect) | RATIFIED at pack creation |
+| DV-3 | Spec §5.4/§12 pin `qdrant/qdrant:v1.18.3-unprivileged` — **that tag does not exist** (confirmed via Docker Hub tag list + `docker pull` 404). Substituted `v1.18.2-unprivileged`, the actual latest stable line as of 2026-07-05 (verified pull + policy re-check per §5.4's own "re-check latest stable at implementation" clause) | M2 | PROPOSED |
 
 ## Decision log
 
@@ -117,6 +130,8 @@ bash scripts/deploy-check.sh
 | 2026-07-05 | M0 merged (PR #1): `upstream` remote wired, `LETA_PATCH.md` v1 created, CI-gate verified (no hatch on this machine — `python3.11` venv path proven instead). M1 unblocked. |
 | 2026-07-05 | **M1 MERGED ([#2](https://github.com/LetA-Tech/miman/pull/2)).** Server patch shipped additive-only: env vector-store selector + Qdrant builder (url-without-key → host/port decomposition survives the `QdrantConfig` before-validator), `/healthz`+`/readyz`, `MIMAN_ENV`-gated fail-closed boot probe, `SKIPPED_REQUEST_LOG_PATHS` +health paths, `server/scripts/provision_service_key.py` (delta-6 member key), `tests/server/test_leta_qdrant_config.py` T-1..T-17 (30 tests green). `git diff -U0 server/main.py` = additions only + the one sanctioned SKIPPED-constant line (A20). Merged on **local gate only** (repo Actions still pending — `gh workflow list` shows only Dependency Graph + CodeQL); **MA1 must re-run the suite on CI**. Two impl notes (within spec, not deviations): boot probe raises `RuntimeError` not `SystemExit` (uvicorn aborts startup non-zero either way; `SystemExit` gets swallowed by anyio's TestClient portal — untestable); `LETA_PATCH.md` fork line corrected (Lucas-approved) to match the M0 fork ratification. Reconciled 2 uncommitted tracker entries from the main working copy (fork decision + Actions follow-up) into this PR so the carry-forward memory isn't lost. B-2 stays MR1's job; no new bridge entry (healthz/readyz shapes match spec §5.3, already disclosed B-3). |
 | 2026-07-05 | **M0 finding ratified: repo IS a GitHub fork** (`fork: true`, parent mem0ai/mem0) — spec §1.2 corrected (was wrong: "not a fork" inferred from `git remote -v` alone). Kickoff pins `--repo LetA-Tech/miman` on all gh PR commands + `gh repo set-default`. M1 gains Actions-enablement P0 check + hermetic-tests requirement; M3 gains cron-arms-on-fork verification. Actions enablement (web-UI consent) = **Lucas gate, urgent** — without it M1/M2 PRs merge on local gate only and MA1 re-runs everything. |
+| 2026-07-05 | Pre-M2 session start: local `main` had diverged (one unpushed doc commit sitting on the pre-M1 base instead of on `origin/main`'s M1 merge). Diffed before acting — 4 of 5 touched files were byte-identical to what PR #2 already reconciled in, the 5th (this tracker) was strictly stale. `git reset --hard origin/main` (Lucas-confirmed) brought local `main` to `02a18840` (M1 merged) with no unique content lost. Separately found an undocumented `dev` branch on the fork (PR #3, "M1 → dev...") — not part of any doctrine here (`main` is the only integration branch per the decision above); content-identical mirror of `main`'s M0+M1 via raw re-commits, not a merge. Left untouched; flagged to Lucas, no action taken pending his call on its purpose. |
+| 2026-07-05 | **M2 MERGED ([#4](https://github.com/LetA-Tech/miman/pull/4)).** Shipped root `Dockerfile`+`.dockerignore` (editable local install for provenance-checkability — `mem0.__file__` resolves under `/app`, not a site-packages copy indistinguishable from a PyPI install), `docker/entrypoint.sh` (alembic-then-uvicorn), `deploy/{docker-compose.yml,.env.example,deploy.sh,README.md}`, `miman-*` Makefile targets, `scripts/{deploy-check,release-all}.sh`. Qdrant pin corrected `v1.18.3`→`v1.18.2-unprivileged` (DV-3, spec's tag doesn't exist). **A4 (live add→search→delete + member-key 403 smoke) not run this lane** — blocked on a real embedder API key; Lucas declined to paste one into chat and none was present in the session environment. `deploy/.env` is fully populated (generated secrets, valid `_v1` collection name) except `OPENAI_API_KEY`; filling that one line and running `bash deploy/deploy.sh` is the only step left to close A4 — tracked as a follow-up below, not silently dropped. Everything else verified with command output (A1,A2,A3,A5,A6; see CI gate section above). Local docker environment also needed two host-level fixes this session (Lucas-approved): Colima's docker disk was 100% full (110 of 111 volumes dangling, unrelated to miman) — full `docker system prune -a --volumes -f` reclaimed 16.68GB; `~/.docker/config.json` had `credsStore: desktop` pointing at a missing Docker Desktop binary, breaking all pulls — removed the key. Neither touches repo state. |
 
 ## Follow-up candidates (one-liners; not scope for any current lane)
 
@@ -137,3 +152,12 @@ bash scripts/deploy-check.sh
   extra that doesn't exist in `pyproject.toml` (pip silently no-ops on it — harmless but
   stale); worth a one-line cleanup in a lane that's already touching `.github/**` (M0 found
   this, `.github/**` is a wall for M0 itself).
+- **Close A4 (M2):** put a real `OPENAI_API_KEY` (or OpenRouter key +
+  `OPENAI_BASE_URL`) into `deploy/.env` and run `bash deploy/deploy.sh` — everything else
+  is staged (secrets generated, compose/scripts verified). MA1 should treat this as a gate,
+  not a re-derivation: the script itself was exercised end-to-end up to the credential line.
+- **Undocumented `dev` branch on the fork** (first commit `4805f311`, 2026-07-05 22:03
+  local, via an untracked PR #3 "M1 → dev...") — content-identical mirror of `main`'s M0+M1
+  via raw re-commits, not a merge. Contradicts the "main has no dev line" decision above and
+  isn't referenced by any dispatch. Left untouched pending Lucas's call: delete it, or state
+  its intended purpose so it can be documented.
