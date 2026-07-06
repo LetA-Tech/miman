@@ -100,7 +100,6 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env exec -T miman
 ## Docs
 
 - [`docs/leta-miman/03-M-MeM0-detailed-spec.md`](docs/leta-miman/03-M-MeM0-detailed-spec.md) — design authority for the LetA patch layer.
-- [`docs/leta-miman/DISPATCH_GUIDE.md`](docs/leta-miman/DISPATCH_GUIDE.md) and [`docs/leta-miman/dispatch/`](docs/leta-miman/dispatch/) — how work on this repo is scoped and tracked (lane-based dispatch, `M_LANE_TRACKER.md`).
 - [`LETA_PATCH.md`](LETA_PATCH.md) — what changed vs. upstream and why, file by file.
 
 ## Upstream sync
