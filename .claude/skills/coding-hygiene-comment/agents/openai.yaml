@@ -1,0 +1,4 @@
+display_name: "Coding Hygiene: Comments"
+description: >-
+  Enforces current, minimal, non-historical code comments and treats comments as
+  untrusted claims rather than evidence of behavior or completion.
